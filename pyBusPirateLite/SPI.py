@@ -23,6 +23,7 @@
 # along with pyBusPirate.  If not, see <http://www.gnu.org/licenses/>.
 
 from .base import BPError, BusPirate, ProtocolError
+from typing import List, Tuple, Optional
 
 
 class SPI(BusPirate):
@@ -35,26 +36,21 @@ class SPI(BusPirate):
              '4MHz'  : 0b110,
              '8MHz'  : 0b111}
 
-    CFG_SAMPLE = 0x01
-    CFG_CLK_EDGE = 0x02
-    CFG_IDLE = 0x04
-    CFG_PUSH_PULL = 0x08
-
     PIN_CS = 1
     PIN_AUX = 2
     PIN_PULLUP = 4
     PIN_POWER = 8
 
-    def __init__(self, portname='', speed=115200, timeout=0.1, connect=True):
+    def __init__(self, portname: str = '', speed: int = 115200, timeout: float = 0.1, connect: bool = True):
         """ Provide high-speed access to the Bus Pirate SPI hardware
 
         Parameters
         ----------
         portname : str
-            Name of comport (/dev/bus_pirate or COM3)
+            Name of comport (/dev/bus_pirate or COM3).  May be left blank to find automatically.
         speed : int
             Communication speed, use default of 115200
-        timeout : int
+        timeout : float
             Timeout in s to wait for reply
         connect : bool
             Automatically connect to BusPirate (default) 
@@ -64,7 +60,7 @@ class SPI(BusPirate):
         >>> from pyBusPirateLite.SPI import SPI
         >>> spi = SPI()
         >>> spi.pins = SPI.PIN_POWER | SPI.PIN_CS
-        >>> spi.config = SPI.CFG_PUSH_PULL | SPI.CFG_IDLE
+        >>> spi.config = SPI.CONFIG_DRIVERS_PUSH_PULL | SPI.CONFIG_CLOCK_POLARITY_ACT_LOW | SPI.CONFIG_CLOCK_PHASE_1 | SPI.CONFIG_CLOCK_POLARITY_ACT_HIGH
         >>> spi.speed = '1MHz'
         >>> spi.cs = True
         >>> data = spi.transfer( [0x82, 0x00])
@@ -138,6 +134,15 @@ class SPI(BusPirate):
     def config(self):
         return self._config
 
+    CONFIG_DRIVERS_PUSH_PULL = (1 << 3) # Set output drivers to push-pull
+    CONFIG_DRIVERS_OPEN_DRAIN = 0 # Set output drivers to open-drain (so to output a high they go hi-Z)
+    CONFIG_CLOCK_POLARITY_ACT_HIGH = 0 # Set clock polarity to active-high
+    CONFIG_CLOCK_POLARITY_ACT_LOW = (1 << 2) # Set clock polarity to active low
+    CONFIG_CLOCK_PHASE_1 = 0 # Set clock phase to "output data on idle to active".
+    CONFIG_CLOCK_PHASE_0 = (1 << 1) # Set clock phase to "output data on active to idle"
+    CONFIG_SAMPLE_TIME_MIDDLE = 0 # Sample data in middle of cycle
+    CONFIG_SAMPLE_TIME_END = 1 # Sample data at end of cycle
+
     @config.setter
     def config(self, cfg):
         """ Set SPI configuration
@@ -153,10 +158,8 @@ class SPI(BusPirate):
         Parameters
         ----------
         cfg : byte
-                CFG_SAMPLE: sample time (0 = middle)
-                CFG_CLK_EDGE: clock edge (1 = active to idle)
-                CFG_IDLE: clock idle phase (0 = low)
-                CFG_PUSH_PULL: pin output (0 = HiZ, 1 = push-pull)
+                Should be an OR of four of the config constants, e.g. CONFIG_DRIVERS_xxx | CONFIG_CLOCK_POLARITY_xxx |
+                CONFIG_CLOCK_PHASE_xxx | CONFIG_SAMPLE_TIME_xxx
 
         Examples
         -------
@@ -335,7 +338,7 @@ class SPI(BusPirate):
             raise ProtocolError('Could not set SPI speed')
         self._speed = frequency
 
-    def sniffer(self, cs):
+    def enter_sniff_mode(self, cs):
         """ Sniff SPI traffic when CS low(10)/all(01) TODO
 
         Parameters
@@ -373,3 +376,48 @@ class SPI(BusPirate):
         self.write(cmd)
         if self.response(1, binary=True) != b'\x01':
             raise ProtocolError('Could not set SPI sniff mode')
+
+    def sniff_message(self) -> Optional[Tuple[bytes, bytes]]:
+        """
+        Sniff the next message traveling over the SPI bus.  Returns the next SPI message seen, or
+        None if no SPI data was detected within the current timeout (timeout is a parameter of the SPI constructor).
+        :return: Tuple of bytes from master, bytes from slave.
+        """
+
+        # Binary format is documented here:
+        # http://dangerousprototypes.com/docs/SPI_(binary)#000011XX_-_Sniff_SPI_traffic_when_CS_low.2810.29.2Fall.2801.29
+
+        # Wait for a bracket character indicating start of message
+        if self.response(1, binary=True) != b'[':
+            # Timeout or unknown start char
+            return None
+
+        mosi_bytes = bytearray()
+        miso_bytes = bytearray()
+        while True:
+            next_byte = self.response(1, binary=True)
+            if next_byte == b']':
+                # End of frame
+                break
+            elif next_byte == b'\\':
+                # Data byte pair.
+                data_bytes = self.response(2, binary=True)
+                if len(data_bytes) == 0:
+                    return None # Lost the end of this transaction?
+                elif len(data_bytes) == 1:
+                    # Only got 1 data byte, do another recieve for the next one
+                    mosi_bytes.append(data_bytes[0])
+                    miso_byte = self.response(1, binary=True)
+                    if len(miso_byte) == 0:
+                        return None # Somehow we lost the second byte?
+                    miso_bytes.append(miso_byte[0])
+                else:
+                    # Got both data bytes as expected
+                    mosi_bytes.append(data_bytes[0])
+                    miso_bytes.append(data_bytes[1])
+
+            else:
+                # Unknown byte.
+                return None
+
+        return mosi_bytes, miso_bytes

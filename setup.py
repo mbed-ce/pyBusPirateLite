@@ -8,7 +8,7 @@ def read(fname):
 
 setup(
     name = "pyBusPirateLite",
-    version = "0.3",
+    version = "0.4",
     python_requires='>=3.6',
     author = "Juergen Hasch",
     author_email = "juergen.hasch@elbonia.de",
@@ -24,4 +24,5 @@ setup(
         "Topic :: Utilities",
         "License :: OSI Approved :: BSD License",
     ],
+    scripts=['bin/buspirate-spi-sniff.py']
 )

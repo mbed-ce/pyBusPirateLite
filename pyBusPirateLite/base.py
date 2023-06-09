@@ -23,7 +23,6 @@ from time import sleep
 
 import serial
 
-
 class BPError(IOError):
     pass
 
@@ -54,7 +53,7 @@ class BusPirate:
     PIN_PULLUP = 0x20
     PIN_POWER = 0x40
 
-    def __init__(self, portname='', speed=115200, timeout=0.1, connect=True):
+    def __init__(self, portname: str = '', speed: int = 115200, timeout: float = 0.1, connect: bool = True):
         """
         This constructor by default conntects to the first buspirate it can
         find. If you don't want that, set connect to False.
@@ -62,11 +61,13 @@ class BusPirate:
         Parameters
         ----------
         portname : str
-            Name of comport (/dev/bus_pirate or COM3)
+            Name of comport (/dev/bus_pirate or COM3). May be left blank to find automatically.
         speed : int
             Communication speed, use default of 115200
         timeout : int
             Timeout in s to wait for reply
+        connect : bool
+            Automatically connect to BusPirate (default)
         """
 
         self.minDelay = 1 / 115200
@@ -80,6 +81,7 @@ class BusPirate:
         self.portname = ''
         self.pins_state = None
         self.pins_direction = None
+        self.serial_debug = False
 
         if connect is True:
             self.connect(portname, speed, timeout)
@@ -216,7 +218,7 @@ class BusPirate:
                     if port.vid == 1027 and port.pid == 24577:
                         return port.device
 
-    def connect(self, portname='', speed=115200, timeout=0.1):
+    def connect(self, portname: str = '', speed: int = 115200, timeout: float = 0.1):
         """Will try to automatically find a port regardless of os
 
         Parameters
@@ -225,7 +227,7 @@ class BusPirate:
             Name of comport (e.g. /dev/ttyUSB0 or COM3)
         speed : int
             Communication speed, use default of 115200
-        timeout : int
+        timeout : float
             Timeout in s to wait for reply
 
         Raises
@@ -262,6 +264,8 @@ class BusPirate:
         sleep(timeout)
 
     def write(self, value):
+        if self.serial_debug:
+            print("pirate <- " + repr(value.to_bytes(1, 'big')))
         self.port.write(value.to_bytes(1, 'big'))
         
     def response(self, byte_count=1, binary=False):
@@ -275,6 +279,8 @@ class BusPirate:
             Return binary (True) or unicode values (False)
         """
         data = self.port.read(byte_count)
+        if self.serial_debug:
+            print("pirate -> " + repr(data))
         if binary is True:
             return data
         else:
