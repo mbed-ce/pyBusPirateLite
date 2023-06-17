@@ -70,6 +70,7 @@ class SPI(BusPirate):
         self._speed = None
         self._cs = None
         self._pins = None
+        self._is_in_sniff_mode = False
         super().__init__(portname, speed, timeout, connect)
 
     def enter(self):
@@ -94,6 +95,16 @@ class SPI(BusPirate):
             self.mode = 'spi'
             return
         raise BPError('Could not enter SPI mode')
+
+    def disconnect(self):
+        """ Disconnect bus pirate, close com port """
+
+        # If we are currently in sniffer mode, we need to exit it so that reconnecting to the pirate
+        # works properly.
+        if self._is_in_sniff_mode:
+            self.exit_sniff_mode()
+
+        super().disconnect()
 
     @property
     def modestring(self):
@@ -376,6 +387,18 @@ class SPI(BusPirate):
         self.write(cmd)
         if self.response(1, binary=True) != b'\x01':
             raise ProtocolError('Could not set SPI sniff mode')
+
+        self._is_in_sniff_mode = True
+
+    def exit_sniff_mode(self):
+        """
+        Exit sniff mode.  Restores the pirate to normal operation.
+        :return:
+        """
+
+        # To exit sniff mode we just need to send any byte
+        self.write(0x0)
+        self._is_in_sniff_mode = False
 
     def sniff_message(self) -> Optional[Tuple[bytes, bytes]]:
         """
