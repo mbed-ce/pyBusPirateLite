@@ -18,6 +18,7 @@ parser.add_argument("-p", "--port", type=str, default="", help="Specify COM port
 parser.add_argument("-c", "--no-cs", action="store_true",
                     help="Don't use the CS pin to detect bus activity -- sniff all the time.")
 parser.add_argument("-m", "--spi-mode", type=int, default=0, help="SPI mode to operate in (0-3).  Default 0.")
+parser.add_argument("-d", "--debug", action="store_true", help="Debug mode.  Prints raw serial comms with the Pirate.")
 
 args = parser.parse_args()
 
@@ -27,6 +28,8 @@ try:
 except IOError as err:
     print("Failed to connect to Bus Pirate: " + str(err))
     sys.exit(1)
+
+buspirate_spi.serial_debug = args.debug
 
 # Since we are just sniffing, may as well leave drivers as open drain
 config: int = SPI.CONFIG_DRIVERS_OPEN_DRAIN | SPI.CONFIG_SAMPLE_TIME_MIDDLE
@@ -48,7 +51,7 @@ else:
     print(f"Invalid --spi-mode value {args.spi_mode}.  Must be between 0 and 3 inclusive.")
     sys.exit(1)
 
-buspirate_spi.config = args.spi_mode
+buspirate_spi.config = config
 buspirate_spi.pins = SPI.PIN_CS
 buspirate_spi.enter_sniff_mode(not args.no_cs)
 
